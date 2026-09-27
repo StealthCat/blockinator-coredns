@@ -1,0 +1,14 @@
+.:1053 {
+    bind 127.0.0.1
+    errors
+    blockinator http://127.0.0.1:8080/api/v1/decision {
+        api_key_env POLICY_API_KEY
+        server_id coredns-1
+        timeout 250ms
+        fail_mode open
+        max_concurrent 128
+    }
+    cache 30
+    loop
+    forward . 1.1.1.1 9.9.9.9
+}
