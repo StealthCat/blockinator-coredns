@@ -1,19 +1,30 @@
-name: CoreDNS plugin
+name: Build CoreDNS with Blockinator
 on:
   push:
-    branches: [main]
   pull_request:
   workflow_dispatch:
+  release:
+    types: [published]
 permissions:
   contents: read
 jobs:
   test:
-    runs-on: ubuntu-24.04
+    name: Linux ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: '1.27.1'
           cache: true
@@ -29,3 +40,35 @@ jobs:
         run: go vet ./...
       - name: Check formatting
         run: test -z "$(gofmt -l *.go)"
+
+      - name: Package tested CoreDNS binary
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: python3 tools/package.py --arch "${{ matrix.arch }}"
+      - name: Upload binary and checksum
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: blockinator-coredns-linux-${{ matrix.arch }}
+          path: dist/*
+          if-no-files-found: error
+          compression-level: 0
+
+  release:
+    if: github.event_name == 'release'
+    needs: test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          pattern: blockinator-coredns-*
+          merge-multiple: true
+          path: dist
+      - name: Attach packages to published release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$RELEASE_TAG" dist/* --clobber

@@ -5,6 +5,43 @@ DNS policies before CoreDNS resolves or forwards a query. It supports client
 scopes, lists, whitelist rules, schedules and query logging through Blockinator's
 existing `/api/v1/decision` API. No changes to the Blockinator server are required.
 
+## Download a tested build
+
+The **Build CoreDNS with Blockinator** workflow builds and tests native Linux
+**AMD64** and **ARM64** binaries with Blockinator compiled in, including live
+UDP/TCP and cache-isolation tests on each architecture. Builds run on pushes,
+pull requests, manual runs, and published releases.
+
+Download the matching `blockinator-coredns_v<version>_linux_<arch>.tar.gz` and
+its `.sha256` file from a release. For an Actions run, download the artifact
+and extract GitHub's outer ZIP first. Then verify and extract the archive:
+
+```bash
+sha256sum -c blockinator-coredns_v1.0.0_linux_amd64.tar.gz.sha256
+tar -xzf blockinator-coredns_v1.0.0_linux_amd64.tar.gz
+cd blockinator-coredns_v1.0.0_linux_amd64
+./coredns -plugins
+```
+
+Use `arm64` instead of `amd64` for ARM64 hosts, and substitute the downloaded
+version. The archive includes the executable, example Corefile, documentation,
+licenses, build metadata, and the resolved upstream module files and plugin order.
+The binary is built with `CGO_ENABLED=0`; keep the host's CA certificates installed
+for HTTPS policy endpoints. No Go compiler is needed to run it.
+
+Configure the API key and Corefile as described below, then run
+`./coredns -conf examples/Corefile`. This is a complete CoreDNS binary with the
+standard upstream plugins plus Blockinator. Deploy it through your existing
+CoreDNS service or container process; retain any other custom plugins by building
+your own binary using the source instructions.
+
+After this workflow is merged, publishing a release automatically builds and
+attaches both architecture archives and their checksums. The release tag must
+match the first version in `CHANGELOG.md` (for example `1.0.0`, `v1.0.0`, or
+`1.0` for changelog version `1.0.0`). Pushes and manual builds use the changelog
+version. To package a local Linux build, run
+`python3 tools/package.py --arch amd64` after `tools/build.sh`.
+
 ## Build
 
 CoreDNS external plugins are **compiled into the CoreDNS binary**. Adding a

@@ -18,5 +18,5 @@ go mod edit -require=github.com/StealthCat/blockinator-coredns@v0.0.0
 go mod edit "-replace=github.com/StealthCat/blockinator-coredns=$plugin_root"
 go generate
 go mod tidy
-go build -o "$plugin_root/build/coredns" .
+CGO_ENABLED=0 go build -trimpath -o "$plugin_root/build/coredns" .
 "$plugin_root/build/coredns" -plugins | grep -x 'blockinator'
