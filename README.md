@@ -36,13 +36,13 @@ blockinator:github.com/StealthCat/blockinator-coredns
 ```
 
 ```bash
-go get github.com/StealthCat/blockinator-coredns@COMMIT_SHA
+go get github.com/StealthCat/blockinator-coredns@v1.0.0
 go generate
 go mod tidy
 go build
 ```
 
-Replace `COMMIT_SHA` with the plugin commit you intend to deploy. Plugin execution
+Replace `v1.0.0` with the release tag (see [CHANGELOG.md](CHANGELOG.md)) or commit you intend to deploy. Plugin execution
 order comes from `plugin.cfg`, **not the order of directives in the Corefile**.
 Blockinator must run before `cache` and answer-producing plugins. The supplied
 build also places it before rewrites so the API sees the original question.
