@@ -36,13 +36,13 @@ blockinator:github.com/StealthCat/blockinator-coredns
 ```
 
 ```bash
-go get github.com/StealthCat/blockinator-coredns@COMMIT_SHA
+go get github.com/StealthCat/blockinator-coredns@v1.0.0
 go generate
 go mod tidy
 go build
 ```
 
-Replace `COMMIT_SHA` with the plugin commit you intend to deploy. Plugin execution
+Replace `v1.0.0` with the release tag (see [CHANGELOG.md](CHANGELOG.md)) or commit you intend to deploy. Plugin execution
 order comes from `plugin.cfg`, **not the order of directives in the Corefile**.
 Blockinator must run before `cache` and answer-producing plugins. The supplied
 build also places it before rewrites so the API sees the original question.
@@ -136,7 +136,8 @@ Blockinator. IPv4 and IPv6 are supported. Scope identity comes from the client
 address visible to CoreDNS, not untrusted EDNS Client Subnet data. NAT and DNS
 proxies may cause multiple clients to share one identity. Raw wire packets and
 EDNS metadata are not sent. Invalid query shape (including multiple questions)
-receives FORMERR without calling the policy API.
+receives FORMERR, and non-QUERY opcodes (NOTIFY, UPDATE, ...) receive NOTIMP,
+without calling the policy API.
 
 The plugin checks the original question, not every CNAME target returned by an
 upstream. Blockinator's ignored record types return an allow decision without a
@@ -151,7 +152,10 @@ flushing CoreDNS's DNS cache. Client-side caches can still retain earlier answer
 
 Non-200 responses, malformed or oversized replies, redirects, TLS errors,
 timeouts and concurrency overload use `fail_mode`. Failure warnings are limited
-to one per minute per plugin instance and omit keys and queried names. Fail-open
+to one per minute per plugin instance. Each warning names the failure class (for
+example `policy HTTP status 401` or `policy request timed out`) and how many
+similar failures were suppressed; keys, endpoint URLs and queried names are never
+logged. Fail-open
 queries may resolve without a Blockinator log entry during an outage. Size the
 API service for your query rate, and choose fail-closed if allowing DNS during a
 policy outage is unacceptable.

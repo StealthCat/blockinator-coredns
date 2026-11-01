@@ -51,7 +51,7 @@ func parse(c *caddy.Controller) (*Blockinator, error) {
 				return nil, c.ArgErr()
 			}
 			if seen[name] {
-				return nil, fmt.Errorf("duplicate blockinator option")
+				return nil, fmt.Errorf("duplicate blockinator option %q", name)
 			}
 			seen[name] = true
 			value := args[0]
@@ -78,7 +78,7 @@ func parse(c *caddy.Controller) (*Blockinator, error) {
 				}
 				limit = n
 			default:
-				return nil, fmt.Errorf("unknown blockinator option")
+				return nil, fmt.Errorf("unknown blockinator option %q", name)
 			}
 		}
 	}
