@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -28,7 +29,11 @@ type Blockinator struct {
 	client                     *http.Client
 	slots                      chan struct{}
 	lastWarning                atomic.Int64
+	suppressed                 atomic.Int64
 }
+
+// maxDecisionSize bounds the policy API response body.
+const maxDecisionSize = 16384
 
 func (b *Blockinator) Name() string { return "blockinator" }
 
@@ -93,15 +98,28 @@ func (b *Blockinator) lookup(ctx context.Context, w dns.ResponseWriter, r *dns.M
 	req.Header.Set("X-API-Key", b.apiKey)
 	resp, err := b.client.Do(req)
 	if err != nil {
+		// Transport errors can embed the endpoint URL; report only their class.
+		var netErr net.Error
+		if errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &netErr) && netErr.Timeout()) {
+			return decision{}, fmt.Errorf("policy request timed out")
+		}
+		if errors.Is(err, context.Canceled) {
+			return decision{}, fmt.Errorf("policy request canceled")
+		}
 		return decision{}, fmt.Errorf("policy transport failed")
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
+		// Drain a bounded amount so the keep-alive connection can be reused.
+		io.Copy(io.Discard, io.LimitReader(resp.Body, maxDecisionSize))
 		return decision{}, fmt.Errorf("policy HTTP status %d", resp.StatusCode)
 	}
-	data, err := io.ReadAll(io.LimitReader(resp.Body, 16385))
-	if err != nil || len(data) > 16384 {
-		return decision{}, fmt.Errorf("invalid policy response size")
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxDecisionSize+1))
+	if err != nil {
+		return decision{}, fmt.Errorf("policy response read failed")
+	}
+	if len(data) > maxDecisionSize {
+		return decision{}, fmt.Errorf("policy response too large")
 	}
 	var d decision
 	if err = json.Unmarshal(data, &d); err != nil || d.Block == nil {
@@ -118,18 +136,17 @@ func (b *Blockinator) lookup(ctx context.Context, w dns.ResponseWriter, r *dns.M
 }
 
 func (b *Blockinator) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg) (int, error) {
-	if r.Response || r.Opcode != dns.OpcodeQuery || len(r.Question) != 1 {
+	if r.Opcode != dns.OpcodeQuery {
+		// NOTIFY, UPDATE, etc. are never forwarded without a policy decision.
+		return reply(w, r, dns.RcodeNotImplemented, "")
+	}
+	if r.Response || len(r.Question) != 1 {
 		// DNS packets with multiple questions have ambiguous cache/response semantics.
 		return reply(w, r, dns.RcodeFormatError, "")
 	}
 	d, err := b.lookup(ctx, w, r)
 	if err != nil {
-		// Avoid flooding logs during outages; never log credentials or query names.
-		now := time.Now().Unix()
-		previous := b.lastWarning.Load()
-		if now-previous >= 60 && b.lastWarning.CompareAndSwap(previous, now) {
-			logger.Warning("Policy check unavailable; applying configured fail_mode")
-		}
+		b.warn(err)
 		if b.failClosed {
 			return reply(w, r, dns.RcodeServerFailure, "")
 		}
@@ -146,6 +163,22 @@ func (b *Blockinator) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns
 	default:
 		return reply(w, r, dns.RcodeSuccess, d.Mode)
 	}
+}
+
+// warn logs policy failures at most once per minute. Error texts are fixed
+// strings that never contain credentials, endpoint URLs or query names.
+func (b *Blockinator) warn(err error) {
+	now := time.Now().Unix()
+	previous := b.lastWarning.Load()
+	if now-previous < 60 || !b.lastWarning.CompareAndSwap(previous, now) {
+		b.suppressed.Add(1)
+		return
+	}
+	if n := b.suppressed.Swap(0); n > 0 {
+		logger.Warningf("Policy check unavailable (%v); applying configured fail_mode (%d similar failures suppressed)", err, n)
+		return
+	}
+	logger.Warningf("Policy check unavailable (%v); applying configured fail_mode", err)
 }
 
 func reply(w dns.ResponseWriter, r *dns.Msg, rcode int, mode string) (int, error) {

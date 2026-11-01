@@ -214,6 +214,23 @@ func TestIPv6TCPAndMalformed(t *testing.T) {
 			t.Fatal("malformed packet accepted")
 		}
 	}
+	notify := query(dns.TypeSOA)
+	notify.Opcode = dns.OpcodeNotify
+	w = writer()
+	b.ServeDNS(context.Background(), w, notify)
+	if w.msg.Rcode != dns.RcodeNotImplemented {
+		t.Fatal("non-QUERY opcode was not rejected with NOTIMP")
+	}
+}
+
+func TestWarningRateLimit(t *testing.T) {
+	b := config(t, "http://127.0.0.1:1/api/v1/decision", "")
+	for i := 0; i < 3; i++ {
+		b.warn(fmt.Errorf("policy transport failed"))
+	}
+	if b.lastWarning.Load() == 0 || b.suppressed.Load() != 2 {
+		t.Fatalf("warnings not rate limited: suppressed=%d", b.suppressed.Load())
+	}
 }
 
 func TestConfiguration(t *testing.T) {
